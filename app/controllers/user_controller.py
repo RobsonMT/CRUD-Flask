@@ -1,4 +1,3 @@
-import copy
 import secrets
 from http import HTTPStatus
 
@@ -74,13 +73,9 @@ def put_user():
     session.add(user)
     session.commit()
 
-    response: UserModel = (
-        session.query(UserModel.name, UserModel.last_name, UserModel.email)
-        .filter_by(email=user.email)
-        .first()
-    )
+    response = {"name": user.name, "last_name": user.last_name, "email": user.email}
 
-    return dict(response), HTTPStatus.OK
+    return response, HTTPStatus.OK
 
 
 @auth.login_required
