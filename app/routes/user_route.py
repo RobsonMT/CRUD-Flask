@@ -1,4 +1,5 @@
 from flask import Blueprint
+
 from app.controllers import user_controller
 
 bp = Blueprint("api", __name__, url_prefix="/api")

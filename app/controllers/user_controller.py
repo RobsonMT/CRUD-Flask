@@ -1,13 +1,15 @@
-import secrets
+from datetime import timedelta
 from http import HTTPStatus
 
-from app.configs.auth import auth
+from flask import jsonify, request
+from flask_jwt_extended import create_access_token, get_jwt_identity, jwt_required
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm.exc import UnmappedInstanceError
+from sqlalchemy.orm.session import Session
+
 from app.configs.database import db
 from app.decorators import validate_keys
 from app.models.user_model import UserModel
-from flask import jsonify, request
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm.session import Session
 
 keys = ["name", "last_name", "email", "password"]
 signin_keys = ["email", "password"]
@@ -23,7 +25,9 @@ def sigin():
     if not user or not user.verify_password(data["password"]):
         return {"detail": "email and password missmatch"}, HTTPStatus.UNAUTHORIZED
 
-    return {"api_key": "{}".format(user.api_key)}, HTTPStatus.OK
+    token = create_access_token(user, expires_delta=timedelta(minutes=5))
+
+    return {"access_token": "{}".format(token)}, HTTPStatus.OK
 
 
 @validate_keys(keys)
@@ -31,15 +35,13 @@ def signup():
     data = request.get_json()
     session: Session = db.session
 
-    data["api_key"] = secrets.token_urlsafe(32)
-
     try:
         user: UserModel = UserModel(**data)
 
         session.add(user)
         session.commit()
 
-        [data.pop(k) for k in ("password", "api_key")]
+        data.pop("password")
 
         return jsonify(data), HTTPStatus.CREATED
     except IntegrityError:
@@ -50,45 +52,59 @@ def signup():
         session.close()
 
 
-@auth.login_required
+@jwt_required()
 def get_user():
-    user: UserModel = auth.current_user()
+    user: UserModel = get_jwt_identity()
 
-    response = {"name": user.name, "last_name": user.last_name, "email": user.email}
-
-    return response, HTTPStatus.OK
+    return jsonify(user), HTTPStatus.OK
 
 
-@auth.login_required
+@jwt_required()
 @validate_keys(keys, keys)
 def put_user():
     data = request.get_json()
     session: Session = db.session
 
-    user: UserModel = auth.current_user()
+    current_user = get_jwt_identity()
 
-    for key, value in data.items():
-        setattr(user, key, value)
+    try:
+        user: UserModel = (
+            session.query(UserModel).filter_by(email=current_user["email"]).first()
+        )
 
-    session.add(user)
-    session.commit()
+        for key, value in data.items():
+            setattr(user, key, value)
 
-    response = {"name": user.name, "last_name": user.last_name, "email": user.email}
+        session.add(user)
+        session.commit()
 
-    return response, HTTPStatus.OK
+        return jsonify(user), HTTPStatus.OK
+    except IntegrityError:
+        session.rollback()
+
+        return {"error": "user already exists!"}, HTTPStatus.CONFLICT
+    finally:
+        session.close()
 
 
-@auth.login_required
+@jwt_required()
 def delete_user():
     session: Session = db.session
 
-    current_user: UserModel = auth.current_user()
+    current_user: UserModel = get_jwt_identity()
 
-    user: UserModel = (
-        session.query(UserModel).filter_by(email=current_user.email).first()
-    )
+    try:
+        user: UserModel = (
+            session.query(UserModel).filter_by(email=current_user["email"]).first()
+        )
 
-    session.delete(user)
-    session.commit()
+        session.delete(user)
+        session.commit()
 
-    return {"msg": f"User {user.name} has been deleted."}, HTTPStatus.OK
+        return {"msg": f"User {user.name} has been deleted."}, HTTPStatus.OK
+    except UnmappedInstanceError:
+        session.rollback()
+
+        return {"error": "user not found"}, HTTPStatus.NOT_FOUND
+    finally:
+        session.close()
