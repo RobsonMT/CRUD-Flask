@@ -8,14 +8,11 @@ from sqlalchemy.orm.exc import UnmappedInstanceError
 from sqlalchemy.orm.session import Session
 
 from app.configs.database import db
-from app.decorators import validate_keys
+from app.decorators import login_validates, register_validates, validates
 from app.models.user_model import UserModel
 
-keys = ["name", "last_name", "email", "password"]
-signin_keys = ["email", "password"]
 
-
-@validate_keys(signin_keys)
+@login_validates()
 def sigin():
     data = request.get_json()
     session: Session = db.session
@@ -30,7 +27,7 @@ def sigin():
     return {"access_token": "{}".format(token)}, HTTPStatus.OK
 
 
-@validate_keys(keys)
+@register_validates()
 def signup():
     data = request.get_json()
     session: Session = db.session
@@ -41,12 +38,18 @@ def signup():
         session.add(user)
         session.commit()
 
-        data.pop("password")
-
-        return jsonify(data), HTTPStatus.CREATED
+        return (
+            {
+                "id": user.id,
+                "name": user.name,
+                "last_name": user.last_name,
+                "email": user.email,
+                "password": user.password_hash,
+            },
+            HTTPStatus.CREATED,
+        )
     except IntegrityError:
         session.rollback()
-
         return {"error": "user already exists!"}, HTTPStatus.CONFLICT
     finally:
         session.close()
@@ -55,12 +58,11 @@ def signup():
 @jwt_required()
 def get_user():
     user: UserModel = get_jwt_identity()
-
     return jsonify(user), HTTPStatus.OK
 
 
 @jwt_required()
-@validate_keys(keys, keys)
+@validates()
 def put_user():
     data = request.get_json()
     session: Session = db.session
@@ -81,7 +83,6 @@ def put_user():
         return jsonify(user), HTTPStatus.OK
     except IntegrityError:
         session.rollback()
-
         return {"error": "user already exists!"}, HTTPStatus.CONFLICT
     finally:
         session.close()
@@ -104,7 +105,6 @@ def delete_user():
         return {"msg": f"User {user.name} has been deleted."}, HTTPStatus.OK
     except UnmappedInstanceError:
         session.rollback()
-
         return {"error": "user not found"}, HTTPStatus.NOT_FOUND
     finally:
         session.close()

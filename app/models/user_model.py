@@ -8,7 +8,7 @@ from app.configs.database import db
 
 @dataclass
 class UserModel(db.Model):
-
+    id: int
     name: str
     last_name: str
     email: str
@@ -19,7 +19,7 @@ class UserModel(db.Model):
     name = Column(String(127), nullable=False)
     last_name = Column(String(511), nullable=False)
     email = Column(String(255), nullable=False, unique=True)
-    password_hash = Column(String(511), nullable=False)
+    password_hash = Column(String(511))
 
     @property
     def password(self):
